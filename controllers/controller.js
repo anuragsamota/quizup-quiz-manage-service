@@ -7,8 +7,23 @@ import TextQuestion from "../models/questionTypes/textQuestion.js";
 /** Create a new quiz */
 export async function createQuiz(req, res) {
     try {
-        const { title, description } = req.body;
-        const quiz = new Quiz({ title, description, questions: [] });
+        const { title, description, organizer } = req.body;
+        
+        // Validate organizer data
+        if (!organizer || !organizer.username) {
+            return res.status(400).json({ 
+                error: 'Organizer username is required' 
+            });
+        }
+        
+        const quiz = new Quiz({ 
+            title, 
+            description, 
+            organizer: {
+                username: organizer.username
+            },
+            questions: [] 
+        });
         await quiz.save();
         res.status(201).json(quiz);
     } catch (error) {
@@ -20,6 +35,17 @@ export async function createQuiz(req, res) {
 export async function getAllQuizzes(req, res) {
     try {
         const quizzes = await Quiz.find().populate('questions');
+        res.json(quizzes);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+/** Get all quizzes by organizer username */
+export async function getQuizzesByOrganizer(req, res) {
+    try {
+        const { username } = req.params;
+        const quizzes = await Quiz.find({ 'organizer.username': username }).populate('questions');
         res.json(quizzes);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -40,10 +66,18 @@ export async function getQuizById(req, res) {
 /** Update a quiz by ID */
 export async function updateQuiz(req, res) {
     try {
-        const { title, description } = req.body;
+        const { title, description, organizer } = req.body;
+        const updateData = {};
+        
+        if (title !== undefined) updateData.title = title;
+        if (description !== undefined) updateData.description = description;
+        if (organizer !== undefined && organizer.username !== undefined) {
+            updateData['organizer.username'] = organizer.username;
+        }
+        
         const quiz = await Quiz.findByIdAndUpdate(
             req.params.quizid,
-            { title, description },
+            updateData,
             { new: true }
         );
         if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
@@ -58,151 +92,8 @@ export async function deleteQuiz(req, res) {
     try {
         const quiz = await Quiz.findByIdAndDelete(req.params.quizid);
         if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-        // Optionally, delete all questions associated with this quiz
-        await Question.deleteMany({ _id: { $in: quiz.questions } });
-        res.json({ msg: 'Quiz and its questions deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-}
-
-// QUESTION CRUD OPERATIONS (for individual questions)
-
-/** Add a question to a quiz (MCQ, MSQ, or Text) */
-export async function createQuestion(req, res) {
-    try {
-        const { type, text, options, correctAnswer, correctAnswers, explanation } = req.body;
-        const quiz = await Quiz.findById(req.params.quizid);
-        if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-        let question, modelName;
-        if (type === 'mcq') {
-            question = new MCQQuestion({ text, options, correctAnswer, explanation });
-            modelName = 'MCQQuestion';
-        } else if (type === 'msq') {
-            question = new MSQQuestion({ text, options, correctAnswers, explanation });
-            modelName = 'MSQQuestion';
-        } else if (type === 'text') {
-            question = new TextQuestion({ text, correctAnswer, explanation });
-            modelName = 'TextQuestion';
-        } else {
-            return res.status(400).json({ error: 'Invalid question type' });
-        }
-        await question.save();
-        quiz.questions.push({ question: question._id, questionModel: modelName });
-        await quiz.save();
-        res.status(201).json(question);
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
-}
-
-/** Get a question by ID (within a quiz) */
-export async function getQuestionById(req, res) {
-    try {
-        const quiz = await Quiz.findById(req.params.quizid);
-        if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-        const qref = quiz.questions.find(q => q.question.equals(req.params.qid));
-        if (!qref) return res.status(404).json({ error: 'Question not in this quiz' });
-        let Model;
-        if (qref.questionModel === 'MCQQuestion') Model = MCQQuestion;
-        else if (qref.questionModel === 'MSQQuestion') Model = MSQQuestion;
-        else if (qref.questionModel === 'TextQuestion') Model = TextQuestion;
-        else return res.status(400).json({ error: 'Unknown question type' });
-        const question = await Model.findById(qref.question);
-        if (!question) return res.status(404).json({ error: 'Question not found' });
-        res.json(question);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-}
-
-/** Update a question by ID (within a quiz) */
-export async function updateQuestion(req, res) {
-    try {
-        const quiz = await Quiz.findById(req.params.quizid);
-        if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-        const qref = quiz.questions.find(q => q.question.equals(req.params.qid));
-        if (!qref) return res.status(404).json({ error: 'Question not in this quiz' });
-        let Model, updateData;
-        if (qref.questionModel === 'MCQQuestion') {
-            Model = MCQQuestion;
-            const { text, options, correctAnswer, explanation } = req.body;
-            updateData = { text, options, correctAnswer, explanation };
-        } else if (qref.questionModel === 'MSQQuestion') {
-            Model = MSQQuestion;
-            const { text, options, correctAnswers, explanation } = req.body;
-            updateData = { text, options, correctAnswers, explanation };
-        } else if (qref.questionModel === 'TextQuestion') {
-            Model = TextQuestion;
-            const { text, correctAnswer, explanation } = req.body;
-            updateData = { text, correctAnswer, explanation };
-        } else {
-            return res.status(400).json({ error: 'Unknown question type' });
-        }
-        const question = await Model.findByIdAndUpdate(
-            req.params.qid,
-            updateData,
-            { new: true }
-        );
-        if (!question) return res.status(404).json({ error: 'Question not found' });
-        res.json(question);
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
-}
-
-/** Delete a question by ID (within a quiz) */
-export async function deleteQuestion(req, res) {
-    try {
-        const quiz = await Quiz.findById(req.params.quizid);
-        if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-        const qref = quiz.questions.find(q => q.question.equals(req.params.qid));
-        if (!qref) return res.status(404).json({ error: 'Question not in this quiz' });
-        let Model;
-        if (qref.questionModel === 'MCQQuestion') Model = MCQQuestion;
-        else if (qref.questionModel === 'MSQQuestion') Model = MSQQuestion;
-        else if (qref.questionModel === 'TextQuestion') Model = TextQuestion;
-        else return res.status(400).json({ error: 'Unknown question type' });
-        const question = await Model.findByIdAndDelete(qref.question);
-        if (!question) return res.status(404).json({ error: 'Question not found' });
-        quiz.questions = quiz.questions.filter(q => !q.question.equals(req.params.qid));
-        await quiz.save();
-        res.json({ msg: 'Question deleted from quiz' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-}
-
-/** Get all questions for a quiz (with type info) */
-export async function getQuestions(req, res) {
-    try {
-        const quiz = await Quiz.findById(req.params.quizid);
-        if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-        // Fetch all questions by type
-        const questions = await Promise.all(quiz.questions.map(async qref => {
-            let Model;
-            if (qref.questionModel === 'MCQQuestion') Model = MCQQuestion;
-            else if (qref.questionModel === 'MSQQuestion') Model = MSQQuestion;
-            else if (qref.questionModel === 'TextQuestion') Model = TextQuestion;
-            else return null;
-            const question = await Model.findById(qref.question);
-            if (!question) return null;
-            return { ...question.toObject(), questionModel: qref.questionModel, _id: qref.question };
-        }));
-        res.json(questions.filter(q => q));
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-}
-
-// Remove insertQuestions (not needed in RESTful design)
-
-/** Delete all questions from a quiz */
-export async function dropQuestions(req, res) {
-    try {
-        const quiz = await Quiz.findById(req.params.quizid);
-        if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-        // Delete all questions by type
+        
+        // Delete all questions associated with this quiz
         for (const qref of quiz.questions) {
             let Model;
             if (qref.questionModel === 'MCQQuestion') Model = MCQQuestion;
@@ -211,9 +102,275 @@ export async function dropQuestions(req, res) {
             else continue;
             await Model.findByIdAndDelete(qref.question);
         }
+        
+        res.json({ msg: 'Quiz and its questions deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+// QUESTION CRUD OPERATIONS
+
+// Helper function to get the appropriate model and validate question type
+function getQuestionModel(type) {
+    const models = {
+        'mcq': { Model: MCQQuestion, name: 'MCQQuestion' },
+        'msq': { Model: MSQQuestion, name: 'MSQQuestion' },
+        'text': { Model: TextQuestion, name: 'TextQuestion' }
+    };
+    return models[type] || null;
+}
+
+// Helper function to find question reference in quiz
+function findQuestionInQuiz(quiz, questionId) {
+    return quiz.questions.find(q => q.question.toString() === questionId.toString());
+}
+
+// Helper function to get model by name
+function getModelByName(modelName) {
+    const modelMap = {
+        'MCQQuestion': MCQQuestion,
+        'MSQQuestion': MSQQuestion,
+        'TextQuestion': TextQuestion
+    };
+    return modelMap[modelName] || null;
+}
+
+/** Create a new question and add it to a quiz */
+export async function createQuestion(req, res) {
+    try {
+        const { type, text, options, correctAnswer, correctAnswers, explanation } = req.body;
+        
+        // Validate quiz exists
+        const quiz = await Quiz.findById(req.params.quizid);
+        if (!quiz) {
+            return res.status(404).json({ error: 'Quiz not found' });
+        }
+        
+        // Get appropriate model for question type
+        const modelInfo = getQuestionModel(type);
+        if (!modelInfo) {
+            return res.status(400).json({ error: 'Invalid question type. Must be mcq, msq, or text' });
+        }
+        
+        // Create question based on type
+        let questionData;
+        if (type === 'mcq') {
+            questionData = { text, options, correctAnswer, explanation };
+        } else if (type === 'msq') {
+            questionData = { text, options, correctAnswers, explanation };
+        } else if (type === 'text') {
+            questionData = { text, correctAnswer, explanation };
+        }
+        
+        // Create and save question
+        const question = new modelInfo.Model(questionData);
+        await question.save();
+        
+        // Add question reference to quiz
+        quiz.questions.push({ 
+            question: question._id, 
+            questionModel: modelInfo.name 
+        });
+        await quiz.save();
+        
+        res.status(201).json({
+            message: 'Question created successfully',
+            question: question
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+/** Get all questions for a quiz */
+export async function getQuestions(req, res) {
+    try {
+        const quiz = await Quiz.findById(req.params.quizid);
+        if (!quiz) {
+            return res.status(404).json({ error: 'Quiz not found' });
+        }
+        
+        // Fetch all questions with their details
+        const questions = [];
+        for (const qref of quiz.questions) {
+            const Model = getModelByName(qref.questionModel);
+            if (Model) {
+                const question = await Model.findById(qref.question);
+                if (question) {
+                    questions.push({
+                        _id: qref.question,
+                        questionModel: qref.questionModel,
+                        ...question.toObject()
+                    });
+                }
+            }
+        }
+        
+        res.json({
+            message: 'Questions retrieved successfully',
+            count: questions.length,
+            questions: questions
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+/** Get a specific question by ID */
+export async function getQuestionById(req, res) {
+    try {
+        const quiz = await Quiz.findById(req.params.quizid);
+        if (!quiz) {
+            return res.status(404).json({ error: 'Quiz not found' });
+        }
+        
+        // Find question reference in quiz
+        const qref = findQuestionInQuiz(quiz, req.params.qid);
+        if (!qref) {
+            return res.status(404).json({ error: 'Question not found in this quiz' });
+        }
+        
+        // Get question from appropriate model
+        const Model = getModelByName(qref.questionModel);
+        if (!Model) {
+            return res.status(400).json({ error: 'Invalid question model' });
+        }
+        
+        const question = await Model.findById(qref.question);
+        if (!question) {
+            return res.status(404).json({ error: 'Question not found' });
+        }
+        
+        res.json({
+            message: 'Question retrieved successfully',
+            question: {
+                _id: qref.question,
+                questionModel: qref.questionModel,
+                ...question.toObject()
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+/** Update a question by ID */
+export async function updateQuestion(req, res) {
+    try {
+        const quiz = await Quiz.findById(req.params.quizid);
+        if (!quiz) {
+            return res.status(404).json({ error: 'Quiz not found' });
+        }
+        
+        // Find question reference in quiz
+        const qref = findQuestionInQuiz(quiz, req.params.qid);
+        if (!qref) {
+            return res.status(404).json({ error: 'Question not found in this quiz' });
+        }
+        
+        // Get appropriate model and prepare update data
+        const Model = getModelByName(qref.questionModel);
+        if (!Model) {
+            return res.status(400).json({ error: 'Invalid question model' });
+        }
+        
+        // Filter out undefined values from request body
+        const updateData = {};
+        const allowedFields = ['text', 'options', 'correctAnswer', 'correctAnswers', 'explanation'];
+        
+        allowedFields.forEach(field => {
+            if (req.body[field] !== undefined) {
+                updateData[field] = req.body[field];
+            }
+        });
+        
+        // Update question
+        const updatedQuestion = await Model.findByIdAndUpdate(
+            qref.question,
+            updateData,
+            { new: true, runValidators: true }
+        );
+        
+        if (!updatedQuestion) {
+            return res.status(404).json({ error: 'Question not found' });
+        }
+        
+        res.json({
+            message: 'Question updated successfully',
+            question: updatedQuestion
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+/** Delete a question by ID */
+export async function deleteQuestion(req, res) {
+    try {
+        const quiz = await Quiz.findById(req.params.quizid);
+        if (!quiz) {
+            return res.status(404).json({ error: 'Quiz not found' });
+        }
+        
+        // Find question reference in quiz
+        const qref = findQuestionInQuiz(quiz, req.params.qid);
+        if (!qref) {
+            return res.status(404).json({ error: 'Question not found in this quiz' });
+        }
+        
+        // Get appropriate model
+        const Model = getModelByName(qref.questionModel);
+        if (!Model) {
+            return res.status(400).json({ error: 'Invalid question model' });
+        }
+        
+        // Delete question from model
+        const deletedQuestion = await Model.findByIdAndDelete(qref.question);
+        if (!deletedQuestion) {
+            return res.status(404).json({ error: 'Question not found in database' });
+        }
+        
+        // Remove question reference from quiz
+        quiz.questions = quiz.questions.filter(
+            q => q.question.toString() !== req.params.qid.toString()
+        );
+        await quiz.save();
+        
+        res.json({
+            message: 'Question deleted successfully',
+            deletedQuestion: deletedQuestion
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+/** Delete all questions from a quiz */
+export async function dropQuestions(req, res) {
+    try {
+        const quiz = await Quiz.findById(req.params.quizid);
+        if (!quiz) {
+            return res.status(404).json({ error: 'Quiz not found' });
+        }
+        
+        // Delete all questions from their respective models
+        const deletedCount = quiz.questions.length;
+        for (const qref of quiz.questions) {
+            const Model = getModelByName(qref.questionModel);
+            if (Model) {
+                await Model.findByIdAndDelete(qref.question);
+            }
+        }
+        
+        // Clear questions array in quiz
         quiz.questions = [];
         await quiz.save();
-        res.json({ msg: 'All questions deleted from quiz' });
+        
+        res.json({
+            message: 'All questions deleted successfully',
+            deletedCount: deletedCount
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

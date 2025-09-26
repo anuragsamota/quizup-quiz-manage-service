@@ -7,6 +7,9 @@ const { Schema } = mongoose;
 const quizModel = new Schema({
     title: { type: String, required: true },
     description: { type: String },
+    organizer: {
+        username: { type: String, required: true }
+    },
     questions: [{
         question: { type: Schema.Types.ObjectId, required: true, refPath: 'questions.questionModel' },
         questionModel: { type: String, required: true, enum: ['MCQQuestion', 'MSQQuestion', 'TextQuestion'] }

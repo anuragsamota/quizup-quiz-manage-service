@@ -12,6 +12,10 @@ router.route("/")
   .post(controller.createQuiz)
   .get(controller.getAllQuizzes);
 
+// Get all quizzes by organizer username
+router.route("/organizer/:username")
+  .get(controller.getQuizzesByOrganizer);
+
 router.route("/:quizid")
   .get(controller.getQuizById)
   .put(controller.updateQuiz)

@@ -5,7 +5,7 @@ const mcqQuestionSchema = new Schema({
   type: { type: String, default: "mcq" },
   text: { type: String, required: true },
   options: [{ type: String, required: true }],
-  correctAnswer: { type: String, required: true }, // single answer
+  correctAnswer: [{ type: String, required: true }], // single answer
   explanation: { type: String },
   createdAt: { type: Date, default: Date.now },
 });
